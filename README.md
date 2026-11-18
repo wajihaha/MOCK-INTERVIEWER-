@@ -1,6 +1,6 @@
 # 🎓 Smart Mock Interviewer — Global AI Career Readiness Simulator
 
-**Built by Coding Club | Team: Haniya Ayaz & Wajiha Fatima**
+**Built by Coding Club | Team: Wajiha Fatima & Haniya Ayaz**
 
 **Smart Mock Interviewer** is a 100% free, browser-based AI career readiness platform built to help engineering and university students worldwide overcome interview anxiety and practice realistic technical and HR interviews before placement season.
 
@@ -29,7 +29,7 @@
 
 ## 👨‍💻 Team — Coding Club
 
-- **Haniya Ayaz** — Co-Builder, Product Design & Prompt Engineering
-- **Wajiha Fatima** — Co-Builder, Research, Testing & Pitch Strategy
+- **Wajiha Fatima** — Co-Builder (vibe coding, Testing & Prompt Engineering): leads full—stack AI development, Prompt optimization, system architecture, and QA testing.
+- **Haniya Ayaz** — Co-Builder (Marketing, Product & Prompt Engineering):leads brand strategy, pitch architecture, UI/UX direction, and persona prompt design.
 
-*Built from scratch using AI-assisted Vibe Coding during the Build2Launch Competition.*
+*Built using AI-assisted Vibe Coding during the Build2Launch Competition.*

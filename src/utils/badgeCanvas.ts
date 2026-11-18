@@ -1,3 +1,5 @@
+import codingClubLogo from '../assets/logo.png';
+
 export interface BadgeRenderOptions {
   score: number;
   track: string;
@@ -67,10 +69,19 @@ function wrapText(
   return currentY;
 }
 
-export function renderReadinessBadgeToCanvas(
+function loadLogoImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+export async function renderReadinessBadgeToCanvas(
   canvas: HTMLCanvasElement,
   options: BadgeRenderOptions
-): string {
+): Promise<string> {
   const width = 1200;
   const height = 630;
   canvas.width = width;
@@ -78,6 +89,8 @@ export function renderReadinessBadgeToCanvas(
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
+
+  const logoImg = await loadLogoImage(codingClubLogo);
 
   // Deep slate-indigo gradient backdrop
   const bgGradient = ctx.createLinearGradient(0, 0, width, height);
@@ -124,35 +137,56 @@ export function renderReadinessBadgeToCanvas(
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Top label bar
+  // Top header with Coding Club logo
+  const logoSize = 68;
+  const logoX = 92;
+  const logoY = 82;
+  if (logoImg) {
+    ctx.save();
+    drawRoundedRect(ctx, logoX, logoY, logoSize, logoSize, 14);
+    ctx.clip();
+    ctx.drawImage(logoImg, logoX, logoY, logoSize, logoSize);
+    ctx.restore();
+
+    drawRoundedRect(ctx, logoX, logoY, logoSize, logoSize, 14);
+    ctx.strokeStyle = 'rgba(52, 211, 153, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  const labelX = logoImg ? logoX + logoSize + 20 : 92;
   ctx.fillStyle = '#34D399';
   ctx.font = '600 18px "Plus Jakarta Sans", system-ui, sans-serif';
-  ctx.fillText('SMART MOCK INTERVIEWER · NED UNIVERSITY EDITION', 92, 114);
+  ctx.fillText('SMART MOCK INTERVIEWER · GLOBAL CAREER READINESS', labelX, 112);
 
-  // Main Headline matching prompt spec: "Interview Ready: [Score]/100 – [Track] @ [Company]"
+  ctx.fillStyle = '#94A3B8';
+  ctx.font = '500 15px "DM Sans", system-ui, sans-serif';
+  ctx.fillText('Coding Club · Haniya Ayaz & Wajiha Fatima', labelX, 138);
+
+  // Main Headline: "Interview Ready: [Score]/100 – [Track] @ [Company]"
   const headline = `Interview Ready: ${options.score}/100 – ${options.track} @ ${options.company}`;
   ctx.fillStyle = '#F8FAFC';
-  ctx.font = '700 38px "Plus Jakarta Sans", system-ui, sans-serif';
-  const afterHeadlineY = wrapText(ctx, headline, 92, 188, 670, 50, 3);
+  ctx.font = '700 36px "Plus Jakarta Sans", system-ui, sans-serif';
+  const afterHeadlineY = wrapText(ctx, headline, 92, 210, 665, 48, 3);
 
   // Readiness classification & Persona metadata
   ctx.fillStyle = '#94A3B8';
-  ctx.font = '500 22px "DM Sans", system-ui, sans-serif';
+  ctx.font = '500 21px "DM Sans", system-ui, sans-serif';
   ctx.fillText(
     `Assessment: ${options.readinessLabel}  ·  Panel: ${options.personaName}`,
     92,
-    Math.max(afterHeadlineY + 34, 340)
+    Math.max(afterHeadlineY + 26, 360)
   );
 
   // Bottom divider line
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(92, 470);
-  ctx.lineTo(750, 470);
+  ctx.moveTo(92, 464);
+  ctx.lineTo(750, 464);
   ctx.stroke();
 
-  // Footer metadata
+  // Footer metadata & required Coding Club verification stamp
   const dateStr =
     options.dateLabel ||
     new Date().toLocaleDateString('en-US', {
@@ -160,9 +194,13 @@ export function renderReadinessBadgeToCanvas(
       month: 'short',
       day: 'numeric',
     });
-  ctx.fillStyle = '#CBD5E1';
-  ctx.font = '500 18px "JetBrains Mono", monospace';
-  ctx.fillText(`VERIFIED PRACTICE REPORT  ·  ${dateStr}`, 92, 518);
+  ctx.fillStyle = '#E2E8F0';
+  ctx.font = '600 18px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.fillText('Verified by Smart Mock Interviewer · Coding Club', 92, 506);
+
+  ctx.fillStyle = '#94A3B8';
+  ctx.font = '500 15px "JetBrains Mono", monospace';
+  ctx.fillText(`ISSUED ${dateStr.toUpperCase()}`, 92, 536);
 
   // Right side circular progress gauge
   const centerX = 955;

@@ -40,12 +40,23 @@ export interface InterviewConfig {
   resumeText: string;
 }
 
-export interface FillerWordCounts {
-  um: number;
-  uh: number;
-  like: number;
-  basically: number;
-  total: number;
+export interface AnswerDepthMetrics {
+  totalWords: number;
+  averageWordsPerAnswer: number;
+  shortestAnswerWords: number;
+  longestAnswerWords: number;
+  concisenessRating:
+    | 'Concise & Focused'
+    | 'Well-Balanced'
+    | 'Brief — Add More Depth'
+    | 'Detailed — Tighten Structure';
+  concisenessGuidance: string;
+}
+
+export interface CommunicationQualityMetrics {
+  clarityStructureScore: number;
+  technicalAlignmentScore: number;
+  answerDepth: AnswerDepthMetrics;
 }
 
 export interface EvaluationRubric {
@@ -59,7 +70,7 @@ export interface QAPair {
   questionIndex: number;
   question: string;
   answer: string;
-  fillerWords: FillerWordCounts;
+  wordCount: number;
   usedHint: boolean;
   timeSpentSeconds: number;
   realtimeFeedbackHint?: string;
@@ -92,13 +103,20 @@ export interface InterviewReport {
   communicationScore: number;
   technicalDepthScore: number;
   confidenceScore: number;
+  communicationMetrics: CommunicationQualityMetrics;
   evaluationRubric?: EvaluationRubric;
   finalCheatSheet?: string[];
   skillBadges: string[];
   strengths: string[];
   improvements: string[];
   questionBreakdowns: QuestionEvaluation[];
-  totalFillerWords: FillerWordCounts;
   isDemo?: boolean;
+  demoIndex?: number;
   completedAt: string;
+}
+
+export interface DemoScenarioPreset {
+  track: string;
+  config: InterviewConfig;
+  report: InterviewReport;
 }

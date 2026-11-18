@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { InterviewScreen } from './components/InterviewScreen';
 import { Navbar } from './components/Navbar';
 import { ScorecardScreen } from './components/ScorecardScreen';
 import { SetupScreen } from './components/SetupScreen';
 import {
-  JUDGE_DEMO_CONFIG,
-  JUDGE_DEMO_REPORT,
-  NED_TRACKS,
+  ENGINEERING_TRACKS,
+  JUDGE_DEMO_PRESETS,
+  getJudgeDemoForTrack,
 } from './data/presets';
 import { resolveGroqApiKey } from './services/groqService';
 import type {
@@ -20,7 +20,7 @@ import type {
 const THEME_STORAGE_KEY = 'smart_mock_theme';
 
 const DEFAULT_CONFIG: InterviewConfig = {
-  track: NED_TRACKS[0],
+  track: ENGINEERING_TRACKS[0],
   company: 'Systems Limited',
   persona: 'friendly_hr',
   mode: 'Mixed',
@@ -49,6 +49,9 @@ export default function App() {
   const [scorecardConfig, setScorecardConfig] = useState<InterviewConfig>(DEFAULT_CONFIG);
   const [report, setReport] = useState<InterviewReport | null>(null);
   const [sessionId, setSessionId] = useState(0);
+
+  const lastDemoTrackRef = useRef<string | null>(null);
+  const lastDemoIndexRef = useRef<number>(-1);
 
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [hasApiKey, setHasApiKey] = useState<boolean>(() => Boolean(resolveGroqApiKey().key));
@@ -84,9 +87,40 @@ export default function App() {
   };
 
   const handleLaunchJudgeDemo = () => {
-    setScorecardConfig(JUDGE_DEMO_CONFIG);
-    setReport(JUDGE_DEMO_REPORT);
+    let targetIndex: number;
+    if (
+      lastDemoTrackRef.current === config.track &&
+      lastDemoIndexRef.current >= 0
+    ) {
+      targetIndex = (lastDemoIndexRef.current + 1) % JUDGE_DEMO_PRESETS.length;
+    } else {
+      const matched = getJudgeDemoForTrack(config.track);
+      targetIndex = JUDGE_DEMO_PRESETS.findIndex((p) => p.track === matched.track);
+      if (targetIndex < 0) targetIndex = 0;
+    }
+
+    lastDemoTrackRef.current = config.track;
+    lastDemoIndexRef.current = targetIndex;
+
+    const chosen = JUDGE_DEMO_PRESETS[targetIndex];
+    setScorecardConfig(chosen.config);
+    setReport(chosen.report);
     setScreen('scorecard');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCycleDemoFromScorecard = () => {
+    const currentIndex =
+      typeof report?.demoIndex === 'number'
+        ? report.demoIndex
+        : lastDemoIndexRef.current >= 0
+        ? lastDemoIndexRef.current
+        : 0;
+    const nextIndex = (currentIndex + 1) % JUDGE_DEMO_PRESETS.length;
+    lastDemoIndexRef.current = nextIndex;
+    const chosen = JUDGE_DEMO_PRESETS[nextIndex];
+    setScorecardConfig(chosen.config);
+    setReport(chosen.report);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -156,12 +190,13 @@ export default function App() {
               setScreen('setup');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
+            onCycleDemo={report.isDemo ? handleCycleDemoFromScorecard : undefined}
           />
         )}
       </div>
 
-      <footer className="no-print border-t border-slate-200/80 bg-white/60 py-4 text-center text-xs text-slate-500 dark:border-slate-800/80 dark:bg-slate-950/60 dark:text-slate-400">
-        Smart Mock Interviewer · Built for NED University Students · Direct Client-Side Groq Practice
+      <footer className="no-print border-t border-slate-200/80 bg-white/60 px-4 py-4 text-center text-xs text-slate-500 dark:border-slate-800/80 dark:bg-slate-950/60 dark:text-slate-400">
+        Smart Mock Interviewer · Built by Coding Club (Wajiha Fatima &amp;Haniya Ayaz ) · Global AI Career Readiness Simulator
       </footer>
 
       <ApiKeyModal

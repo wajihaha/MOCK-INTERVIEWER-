@@ -9,6 +9,7 @@ import {
   Download,
   Image as ImageIcon,
   Printer,
+  RefreshCw,
   RotateCcw,
   Sparkles,
   X,
@@ -21,12 +22,14 @@ interface ScorecardScreenProps {
   config: InterviewConfig;
   report: InterviewReport;
   onStartNewInterview: () => void;
+  onCycleDemo?: () => void;
 }
 
 export function ScorecardScreen({
   config,
   report,
   onStartNewInterview,
+  onCycleDemo,
 }: ScorecardScreenProps) {
   const [expandedQuestions, setExpandedQuestions] = useState<Record<number, boolean>>(() => {
     const initial: Record<number, boolean> = {};
@@ -35,6 +38,15 @@ export function ScorecardScreen({
     });
     return initial;
   });
+
+  // Reset first-question accordion open when cycling between demo presets
+  useEffect(() => {
+    const next: Record<number, boolean> = {};
+    report.questionBreakdowns.forEach((item, idx) => {
+      next[item.questionNumber] = idx === 0;
+    });
+    setExpandedQuestions(next);
+  }, [report]);
 
   const [badgeModalOpen, setBadgeModalOpen] = useState(false);
   const [badgeDataUrl, setBadgeDataUrl] = useState('');
@@ -77,19 +89,25 @@ export function ScorecardScreen({
       : 'text-amber-600 dark:text-amber-400';
 
   const handleGenerateBadge = () => {
+    setBadgeDataUrl('');
     setBadgeModalOpen(true);
   };
 
   useEffect(() => {
     if (!badgeModalOpen || !hiddenCanvasRef.current) return;
-    const url = renderReadinessBadgeToCanvas(hiddenCanvasRef.current, {
+    let active = true;
+    renderReadinessBadgeToCanvas(hiddenCanvasRef.current, {
       score: clampedScore,
       track: config.track,
       company: config.company,
       readinessLabel: report.readinessLabel,
       personaName,
+    }).then((url) => {
+      if (active) setBadgeDataUrl(url);
     });
-    setBadgeDataUrl(url);
+    return () => {
+      active = false;
+    };
   }, [badgeModalOpen, clampedScore, config.company, config.track, personaName, report.readinessLabel]);
 
   const handleDownloadBadge = () => {
@@ -105,6 +123,8 @@ export function ScorecardScreen({
     window.print();
   };
 
+  const { clarityStructureScore, technicalAlignmentScore, answerDepth } = report.communicationMetrics;
+
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
       {/* Hidden canvas for badge rendering */}
@@ -118,9 +138,22 @@ export function ScorecardScreen({
             {report.isDemo && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="text-emerald-600 dark:text-emerald-400">
-                  Instant Judge Demo Sample
-                </span>
+                {onCycleDemo ? (
+                  <button
+                    type="button"
+                    onClick={onCycleDemo}
+                    className="no-print inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-left text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 cursor-pointer"
+                  >
+                    <RefreshCw className="h-3 w-3 shrink-0" />
+                    <span>
+                      Judge Demo: {config.track} @ {config.company} — Click again to cycle scenarios
+                    </span>
+                  </button>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    Judge Demo: {config.track} @ {config.company}
+                  </span>
+                )}
               </>
             )}
           </div>
@@ -162,7 +195,7 @@ export function ScorecardScreen({
         </div>
       </section>
 
-      {/* Top Analytics Row: Overall Circular Gauge + Communication/Filler Metrics */}
+      {/* Top Analytics Row: Overall Circular Gauge + Communication & Response Quality Metrics */}
       <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Overall Readiness Score Gauge (4 cols) */}
         <div className="print-break-inside-avoid flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-6 text-center lg:col-span-4 dark:border-slate-800 dark:bg-slate-900">
@@ -248,7 +281,7 @@ export function ScorecardScreen({
           </div>
         </div>
 
-        {/* Executive Summary, Skill Badges & Filler-Word Telemetry (8 cols) */}
+        {/* Executive Summary, Skill Badges & Communication Quality Metrics (8 cols) */}
         <div className="print-break-inside-avoid flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-6 lg:col-span-8 dark:border-slate-800 dark:bg-slate-900">
           <div>
             <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
@@ -277,37 +310,77 @@ export function ScorecardScreen({
             </div>
           </div>
 
-          {/* Communication & Filler-Word Metrics */}
+          {/* Communication & Response Quality Metrics */}
           <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Communication & Filler-Word Metrics
+                Communication &amp; Response Quality Metrics
               </h3>
-              <span className="font-mono text-xs font-semibold tabular-nums text-slate-900 dark:text-white">
-                Total Detected: {report.totalFillerWords.total}
+              <span className="font-mono text-xs font-semibold tabular-nums text-slate-600 dark:text-slate-400">
+                {answerDepth.totalWords} total words across {report.questionBreakdowns.length}{' '}
+                responses
               </span>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {(
-                [
-                  { label: '"um"', value: report.totalFillerWords.um },
-                  { label: '"uh"', value: report.totalFillerWords.uh },
-                  { label: '"like"', value: report.totalFillerWords.like },
-                  { label: '"basically"', value: report.totalFillerWords.basically },
-                ] as const
-              ).map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/60"
-                >
-                  <div className="font-mono text-lg font-bold tabular-nums text-slate-900 dark:text-white">
-                    {item.value}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{item.label}</div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {/* 1. Response Clarity & Structure Score */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-xl font-bold tabular-nums text-slate-900 dark:text-white">
+                    {clarityStructureScore}
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      /100
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                    STAR &amp; Flow
+                  </span>
                 </div>
-              ))}
+                <div className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Response Clarity &amp; Structure
+                </div>
+              </div>
+
+              {/* 2. Technical & Role Alignment Score */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-xl font-bold tabular-nums text-slate-900 dark:text-white">
+                    {technicalAlignmentScore}
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      /100
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    Role Fit
+                  </span>
+                </div>
+                <div className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Technical &amp; Role Alignment
+                </div>
+              </div>
+
+              {/* 3. Answer Depth & Conciseness Metric */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-xl font-bold tabular-nums text-slate-900 dark:text-white">
+                    {answerDepth.averageWordsPerAnswer}
+                    <span className="ml-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      avg words
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    {answerDepth.concisenessRating}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Answer Depth &amp; Conciseness
+                </div>
+              </div>
             </div>
+
+            <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400">
+              {answerDepth.concisenessGuidance}
+            </p>
           </div>
         </div>
       </section>

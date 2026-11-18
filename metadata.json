@@ -1,6 +1,6 @@
 {
   "name": "Smart Mock Interviewer",
-  "description": "AI-powered mock interview simulator and readiness scorecard built for NED University engineering and management students.",
+  "description": "Smart Mock Interviewer — Global AI Career Readiness Simulator for Engineering & Tech Students.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": []
 }

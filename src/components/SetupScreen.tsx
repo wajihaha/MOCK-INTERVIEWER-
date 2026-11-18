@@ -18,10 +18,11 @@ import {
   UserCheck,
   Zap,
 } from 'lucide-react';
+import codingClubLogo from '../assets/logo.png';
 import {
   COMPANY_CATEGORIES,
   COMPANY_PRESETS,
-  NED_TRACKS,
+  ENGINEERING_TRACKS,
   PERSONA_OPTIONS,
 } from '../data/presets';
 import type {
@@ -94,17 +95,24 @@ export function SetupScreen({
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
       {/* Top Hero Header & Instant Judge Demo */}
       <section className="flex flex-col justify-between gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-end lg:pb-8 dark:border-slate-800">
-        <div className="w-full max-w-2xl">
-          <p className="text-xs font-semibold tracking-wide text-indigo-600 dark:text-indigo-400">
-            NED University of Engineering & Technology · Career Readiness Simulator
-          </p>
-          <h1 className="font-display mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl lg:text-4xl dark:text-white [text-wrap:balance]">
-            Practice real technical and HR interviews before placement season.
-          </h1>
-          <p className="mt-2.5 text-sm leading-relaxed text-slate-600 sm:mt-3 sm:text-base dark:text-slate-300">
-            Configure your engineering discipline, target Pakistani or global employer, interviewer
-            persona, and optional Roman Urdu comfort mode—then receive instant rubric scoring.
-          </p>
+        <div className="flex w-full max-w-2xl flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+          <img
+            src={codingClubLogo}
+            alt="Coding Club — Wajiha Fatima & Haniya Ayaz "
+            className="h-20 w-20 shrink-0 rounded-2xl border border-slate-700/60 object-cover shadow-md sm:h-24 sm:w-24"
+          />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-wide text-indigo-600 dark:text-indigo-400">
+              Smart Mock Interviewer — Global AI Career Readiness Simulator for Engineering &amp; Tech Students
+            </p>
+            <h1 className="font-display mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl lg:text-4xl dark:text-white [text-wrap:balance]">
+              Practice real technical and HR interviews before placement season.
+            </h1>
+            <p className="mt-2.5 text-sm leading-relaxed text-slate-600 sm:mt-3 sm:text-base dark:text-slate-300">
+              Configure your engineering discipline, target global or regional employer, interviewer
+              persona, and optional Roman Urdu comfort mode—then receive instant rubric scoring.
+            </p>
+          </div>
         </div>
 
         <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center md:shrink-0">
@@ -123,12 +131,12 @@ export function SetupScreen({
       <div className="mt-6 grid grid-cols-1 gap-6 sm:mt-8 lg:grid-cols-12 lg:gap-8">
         {/* Left Column: Track, Employer & Optional JD/CV (7 cols) */}
         <div className="min-w-0 space-y-6 lg:col-span-7">
-          {/* 1. NED Engineering & Industry Track */}
+          {/* 1. Engineering & Industry Track */}
           <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center gap-2.5">
               <GraduationCap className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
-                01. NED Engineering & Industry Track
+                01. Engineering &amp; Industry Track
               </h2>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -136,16 +144,16 @@ export function SetupScreen({
             </p>
 
             <div className="mt-4">
-              <label htmlFor="ned-track-select" className="sr-only">
-                Select NED Engineering or Industry Track
+              <label htmlFor="engineering-track-select" className="sr-only">
+                Select Engineering or Industry Track
               </label>
               <select
-                id="ned-track-select"
+                id="engineering-track-select"
                 value={config.track}
                 onChange={(e) => updateField('track', e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 cursor-pointer"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:bg-slate-950 cursor-pointer"
               >
-                {NED_TRACKS.map((track) => (
+                {ENGINEERING_TRACKS.map((track) => (
                   <option key={track} value={track}>
                     {track}
                   </option>
@@ -272,7 +280,7 @@ export function SetupScreen({
                     Optional Context: Job Description & Resume / CV
                   </h2>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    Paste a JD or your NED FYP & project bullets for personalized probing questions
+                    Paste a JD or your capstone &amp; project bullets for personalized probing questions
                   </p>
                 </div>
               </div>
@@ -298,7 +306,7 @@ export function SetupScreen({
                     value={config.jobDescription}
                     onChange={(e) => updateField('jobDescription', e.target.value)}
                     placeholder="Paste key responsibilities or skills from the job posting..."
-                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500"
+                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:bg-slate-950"
                   />
                 </div>
 
@@ -307,15 +315,15 @@ export function SetupScreen({
                     htmlFor="resume-input"
                     className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
                   >
-                    Plain-Text Resume / CV or FYP Summary (Optional)
+                    Plain-Text Resume / CV or Capstone Summary (Optional)
                   </label>
                   <textarea
                     id="resume-input"
                     rows={4}
                     value={config.resumeText}
                     onChange={(e) => updateField('resumeText', e.target.value)}
-                    placeholder="e.g. Final year NED Mechanical student. FYP: Solar-assisted HVAC heat recovery unit. Internship at Lucky Cement..."
-                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500"
+                    placeholder="e.g. Final year Mechanical Engineering student. Capstone: Solar-assisted HVAC heat recovery unit. Reliability intern..."
+                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:bg-slate-950"
                   />
                 </div>
               </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { KeyRound, Menu, Moon, Sun, X } from 'lucide-react';
+import codingClubLogo from '../assets/logo.png';
 import type { AppScreen } from '../types/interview';
 
 interface NavbarProps {
@@ -34,14 +35,26 @@ export function Navbar({
 
   return (
     <header className="no-print sticky top-0 z-30 w-full border-b border-slate-200/90 bg-white/95 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/95">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-4 py-3 sm:gap-4 sm:px-6 sm:py-3.5 lg:gap-8">
-        {/* Zone 1: Single-line brand wordmark */}
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-4 py-2.5 sm:gap-4 sm:px-6 sm:py-3 lg:gap-8">
+        {/* Zone 1: Coding Club logo + brand wordmark & attribution */}
         <button
           type="button"
           onClick={() => handleMobileNavigate('setup')}
-          className="font-display min-w-0 truncate text-left text-sm font-bold tracking-tight text-slate-900 transition-colors hover:text-indigo-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 sm:text-lg dark:text-slate-100 dark:hover:text-indigo-400 cursor-pointer"
+          className="group flex min-w-0 items-center gap-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 sm:gap-3 cursor-pointer"
         >
-          Smart Mock Interviewer
+          <img
+            src={codingClubLogo}
+            alt="Coding Club logo"
+            className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover shadow-xs sm:h-11 sm:w-11 dark:border-slate-700/70"
+          />
+          <div className="min-w-0">
+            <div className="font-display truncate text-sm font-bold tracking-tight text-slate-900 transition-colors group-hover:text-indigo-600 sm:text-base dark:text-slate-100 dark:group-hover:text-indigo-400">
+              Smart Mock Interviewer
+            </div>
+            <div className="truncate text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              By Coding Club · Wajiha Fatima  &amp; Haniya Ayaz
+            </div>
+          </div>
         </button>
 
         {/* Zone 2: Desktop single-line text navigation */}

@@ -1,16 +1,40 @@
 import type {
+  CommunicationQualityMetrics,
   EvaluationRubric,
-  FillerWordCounts,
   InterviewConfig,
   InterviewReport,
   PersonaId,
   QAPair,
 } from '../types/interview';
-import { sumFillerWords } from '../utils/fillerWords';
+import { computeAnswerDepthMetrics } from '../utils/responseMetrics';
 
 const GROQ_CHAT_COMPLETIONS_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'openai/gpt-oss-20b';
 const LOCAL_STORAGE_KEY = 'smart_mock_groq_api_key';
+
+const SCENARIO_ANGLES: readonly string[] = [
+  'Production Failure & Root-Cause Triage under realistic constraints',
+  'System Architecture Trade-Offs, Scalability & Cost Optimization',
+  'Cross-Functional Collaboration, Stakeholder Alignment & STAR Ownership',
+  'First-Principles Fundamentals Applied to Modern Industry Standards',
+  'Safety, Reliability, Edge-Case Resilience & Quality Assurance',
+  'Real-World Project Deep-Dive, Metrics Impact & Lessons Learned',
+];
+
+export interface SessionVarietyContext {
+  sessionSeed: string;
+  scenarioAngle: string;
+}
+
+export function createSessionVarietyContext(): SessionVarietyContext {
+  const randomToken = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const angleIndex = Math.floor(Math.random() * SCENARIO_ANGLES.length);
+  return {
+    sessionSeed: `${timestamp}-${randomToken}`,
+    scenarioAngle: SCENARIO_ANGLES[angleIndex],
+  };
+}
 
 export class GroqApiError extends Error {
   code: 'MISSING_KEY' | 'INVALID_KEY' | 'RATE_LIMIT' | 'NETWORK' | 'BAD_RESPONSE';
@@ -144,8 +168,8 @@ interface ChatCompletionMessage {
 
 async function callGroqChat(
   messages: ChatCompletionMessage[],
-  maxTokens = 1500,
-  temperature = 0.6
+  maxTokens = 1600,
+  temperature = 0.7
 ): Promise<string> {
   const { key } = resolveGroqApiKey();
   if (!key) {
@@ -167,7 +191,7 @@ async function callGroqChat(
       body: JSON.stringify({
         model: GROQ_MODEL,
         messages,
-        max_tokens: Math.max(1200, maxTokens),
+        max_tokens: Math.max(1500, maxTokens),
         temperature,
       }),
     });
@@ -222,33 +246,34 @@ async function callGroqChat(
 function describePersona(persona: PersonaId): string {
   switch (persona) {
     case 'friendly_hr':
-      return 'Friendly HR: warm, encouraging, supportive, builds candidate confidence while probing behavioral depth and cultural alignment.';
+      return 'Friendly HR: warm, encouraging, supportive, builds candidate confidence while probing behavioral depth, STAR alignment, and cultural fit.';
     case 'strict_tech_lead':
-      return 'Strict Tech Lead: direct, analytical, zero-fluff engineering lead who probes technical trade-offs, fundamentals, and real implementation details.';
+      return 'Strict Tech Lead: direct, analytical, zero-fluff engineering lead who probes technical trade-offs, quantitative constraints, and real implementation details.';
     case 'stress_tester':
-      return 'Stress Tester: sharp, skeptical, fast-paced panelist who challenges weak claims, tests composure under pressure, and asks tough edge-case follow-ups.';
+      return 'Stress Tester: sharp, skeptical, fast-paced panelist who challenges vague claims, tests composure under pressure, and asks tough edge-case follow-ups.';
   }
 }
 
 function buildContextBlock(config: InterviewConfig): string {
   const resumeSummary = config.resumeText.trim()
     ? config.resumeText.trim().slice(0, 1800)
-    : `NED University final-year student/graduate in ${config.track} (probe relevant coursework, lab projects, and Final Year Project).`;
+    : `Final-year engineering or technology student/graduate in ${config.track} (probe relevant core coursework, lab projects, internships, and capstone project).`;
 
   const jdSummary = config.jobDescription.trim()
     ? config.jobDescription.trim().slice(0, 1500)
     : `Entry-level / Graduate Engineer / Management Trainee expectations at ${config.company} for ${config.track}.`;
 
   return [
-    `- Target Track / Company: ${config.track} @ ${config.company}`,
+    `- Discipline / Track: ${config.track}`,
+    `- Target Company: ${config.company}`,
     `- Interviewer Persona: ${describePersona(config.persona)}`,
     `- Interview Mode: ${config.mode}`,
     `- Language Preference: ${
       config.languageMode === 'Hinglish / Roman Urdu Comfort Mode'
-        ? 'Hinglish / Roman Urdu Comfort Mode (adapt conversationally if the candidate replies in Roman Urdu/Hinglish while keeping professional engineering standards).'
+        ? 'Hinglish / Roman Urdu Comfort Mode (adapt warmly and conversationally if the candidate replies in Roman Urdu/Hinglish while maintaining high global engineering standards).'
         : 'Corporate English.'
     }`,
-    `- Candidate Resume Summary:\n${resumeSummary}`,
+    `- Candidate Resume / Capstone Summary:\n${resumeSummary}`,
     `- Target Job Description:\n${jdSummary}`,
   ].join('\n');
 }
@@ -278,7 +303,6 @@ interface RawTurnSchema {
     confidence_tone?: number;
   };
   final_cheat_sheet?: string[];
-  // Backwards-compatible fallback keys if model mixes format
   reaction?: string;
   question?: string;
 }
@@ -286,10 +310,16 @@ interface RawTurnSchema {
 export async function generateNextInterviewTurn(
   config: InterviewConfig,
   history: QAPair[],
-  nextQuestionNumber: number
+  nextQuestionNumber: number,
+  variety?: SessionVarietyContext
 ): Promise<NextTurnResult> {
   const isFirst = nextQuestionNumber === 1 || history.length === 0;
   const contextBlock = buildContextBlock(config);
+  const sessionVariety = variety ?? createSessionVarietyContext();
+
+  const askedQuestionsList = history
+    .map((item) => `Q${item.questionIndex}: ${item.question}`)
+    .join('\n');
 
   const transcriptText = history
     .map(
@@ -298,24 +328,40 @@ export async function generateNextInterviewTurn(
     )
     .join('\n\n');
 
-  const systemPrompt = `You are an expert AI Technical Recruiter and Senior Engineering Interviewer tailored for top employers in Pakistan (e.g., Systems Limited, 10Pearls, Meezan Bank, Engro, K-Electric).
+  const systemPrompt = `You are a Principal Engineering Interviewer & Global Technical Recruiter conducting an authentic, high-signal interview tailored to ${config.company} (${config.track}).
 
-### Context Provided:
+### Session Configuration & Context:
 ${contextBlock}
 - Current Progress: Question ${nextQuestionNumber} of ${config.questionCount}
+- Unique Session Seed: ${sessionVariety.sessionSeed}
+- Fresh Scenario Angle for This Session: ${sessionVariety.scenarioAngle}
 
 ### Core Operational Rules:
-1. CUSTOM RESUME/JD GRILLING: On the very first question, analyze the provided Resume and Job Description. Target specific gaps, tech stacks, or projects mentioned in their resume to grill them like a real tech lead.
-2. ADAPTIVE HUMAN-LIKE PROBING: Never use a rigid static script. If the candidate's answer is vague, evasive, or misses technical depth, immediately drill down with a targeted technical edge-case question instead of moving forward.
-3. ACTIONABLE EDUCATIONAL FEEDBACK: Do not just give generic scores. In the feedback, explicitly state what specific technical keywords they missed and evaluate if they structured their response using the STAR method (Situation, Task, Action, Result).
-4. LANGUAGE COMFORT: If the user responds in Roman Urdu/Hinglish or toggles comfort mode, adapt conversationally while keeping professional standards.
-5. STRICT JSON OUTPUT: You must ALWAYS respond in valid JSON matching the schema below. Do not include markdown code blocks (like \`\`\`json) or any conversational text outside the JSON. Ask ONLY ONE focused question inside "interviewer_dialogue" and keep "is_interview_complete" as false until all ${config.questionCount} questions are answered.
+1. DEEP PERSONALIZATION (RESUME, JD, TRACK, COMPANY, MODE, PERSONA):
+   - Question 1 MUST incorporate the candidate's Track (${config.track}), Target Company (${config.company}), Interview Mode (${config.mode}), Persona tone, and any specific projects, tools, or skill gaps found in their Resume/CV and Job Description.
+2. ADAPTIVE FOLLOW-UP LOGIC (TURN 2+):
+   - Carefully analyze the candidate's IMMEDIATELY PRECEDING answer.
+   - If the previous answer was vague, skipped edge cases, or named a specific tool/project/metric without depth, drill down with a targeted follow-up probing that exact concept or decision.
+   - Otherwise, transition smoothly to a fresh, non-overlapping competency relevant to ${config.track} @ ${config.company} in ${config.mode} mode.
+3. STRICT ANTI-REPETITION ENGINE:
+   - Use Session Seed "${sessionVariety.sessionSeed}" and Scenario Angle "${sessionVariety.scenarioAngle}" to craft fresh, original questions rather than generic textbook clichés.
+   - NEVER repeat, rephrase, or overlap with any previously asked question in this session.
+4. ACTIONABLE REAL-TIME FEEDBACK:
+   - In "realtime_feedback_hint" (Turn 2+), give a crisp 1-sentence coaching tip naming specific missed technical keywords or evaluating STAR structure (Situation, Task, Action, Result). Leave empty on Turn 1.
+5. LANGUAGE COMFORT:
+   - ${
+     config.languageMode === 'Hinglish / Roman Urdu Comfort Mode'
+       ? 'Respect Comfort Mode: acknowledge Roman Urdu/Hinglish naturally if used while keeping technical rigor intact.'
+       : 'Conduct the interview in crisp, natural Corporate English.'
+   }
+6. STRICT JSON OUTPUT:
+   - Respond ONLY with valid JSON matching the schema below. Do not output markdown fences or text outside the JSON. Ask ONLY ONE focused question inside "interviewer_dialogue".
 
 ### JSON Output Schema:
 {
   "interviewer_dialogue": "The text spoken or typed by the AI interviewer for the current turn.",
   "is_interview_complete": false,
-  "realtime_feedback_hint": "A short, 1-sentence tip pointing out missing keywords or whether they used the STAR method (empty string on Turn 1).",
+  "realtime_feedback_hint": "A short, 1-sentence tip pointing out missing keywords or STAR usage (empty string on Turn 1).",
   "evaluation_rubric": {
     "technical_accuracy": 0,
     "communication_clarity": 0,
@@ -326,16 +372,20 @@ ${contextBlock}
 }`;
 
   const userPrompt = isFirst
-    ? `Start the interview now (Question 1 of ${config.questionCount}). Analyze the Candidate Resume Summary and Target Job Description above and open with a sharp, targeted question. Output ONLY the valid JSON object.`
-    : `Interview transcript so far:\n\n${transcriptText}\n\nEvaluate the candidate's latest answer for missing technical keywords and STAR structure in "realtime_feedback_hint", update "evaluation_rubric" (0-100 integers), and either drill down on any vague claim or advance to Question ${nextQuestionNumber} of ${config.questionCount} in "interviewer_dialogue". Set "is_interview_complete" to false and "final_cheat_sheet" to []. Output ONLY the valid JSON object.`;
+    ? `Start the interview now (Question 1 of ${config.questionCount}) using Session Seed ${sessionVariety.sessionSeed} and Scenario Angle "${sessionVariety.scenarioAngle}". Tailor Question 1 tightly to ${config.track}, ${config.company}, ${config.mode} mode, and the candidate's Resume/JD if provided. Output ONLY the valid JSON object.`
+    : `Previously asked questions (DO NOT repeat or rephrase any of these):\n${askedQuestionsList}\n\nFull transcript so far:\n\n${transcriptText}\n\nAnalyze the candidate's latest answer:
+1) Provide a specific 1-sentence "realtime_feedback_hint" naming missed technical keywords or STAR alignment.
+2) Update "evaluation_rubric" (0-100 integers).
+3) In "interviewer_dialogue", ask Question ${nextQuestionNumber} of ${config.questionCount}: either probe deeper into a specific claim/concept from their last answer OR move to a completely fresh, non-overlapping competency for ${config.track} @ ${config.company}.
+Set "is_interview_complete" to false and "final_cheat_sheet" to []. Output ONLY the valid JSON object.`;
 
   const raw = await callGroqChat(
     [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    1500,
-    0.65
+    1600,
+    0.72
   );
 
   try {
@@ -347,12 +397,22 @@ ${contextBlock}
 
     return {
       interviewerDialogue: dialogue,
-      isInterviewComplete: Boolean(parsed.is_interview_complete) && history.length >= config.questionCount,
+      isInterviewComplete:
+        Boolean(parsed.is_interview_complete) && history.length >= config.questionCount,
       realtimeFeedbackHint: isFirst ? '' : (parsed.realtime_feedback_hint || '').trim(),
       evaluationRubric: {
-        technical_accuracy: clampScore(parsed.evaluation_rubric?.technical_accuracy, isFirst ? 0 : 72),
-        communication_clarity: clampScore(parsed.evaluation_rubric?.communication_clarity, isFirst ? 0 : 74),
-        industry_alignment: clampScore(parsed.evaluation_rubric?.industry_alignment, isFirst ? 0 : 72),
+        technical_accuracy: clampScore(
+          parsed.evaluation_rubric?.technical_accuracy,
+          isFirst ? 0 : 72
+        ),
+        communication_clarity: clampScore(
+          parsed.evaluation_rubric?.communication_clarity,
+          isFirst ? 0 : 74
+        ),
+        industry_alignment: clampScore(
+          parsed.evaluation_rubric?.industry_alignment,
+          isFirst ? 0 : 72
+        ),
         confidence_tone: clampScore(parsed.evaluation_rubric?.confidence_tone, isFirst ? 0 : 75),
       },
       finalCheatSheet: Array.isArray(parsed.final_cheat_sheet)
@@ -379,8 +439,8 @@ export async function generateQuestionHint(
   config: InterviewConfig,
   currentQuestion: string
 ): Promise<string[]> {
-  const systemPrompt = `You are a supportive career coach for NED University students.
-Provide 3 concise, structured bullet-point hints on HOW to approach the interview question below WITHOUT giving away the direct answer.
+  const systemPrompt = `You are an encouraging global engineering career coach.
+Provide 3 concise, structured bullet-point hints on HOW to approach the interview question below WITHOUT giving away the full answer.
 Context: Track = ${config.track}, Target Company = ${config.company}, Mode = ${config.mode}.
 Return ONLY a valid JSON object:
 {"hints": ["Hint 1...", "Hint 2...", "Hint 3..."]}`;
@@ -393,7 +453,7 @@ Return ONLY a valid JSON object:
         content: `Interview Question:\n"${currentQuestion}"\n\nGenerate 3 actionable approach hints in JSON.`,
       },
     ],
-    1200,
+    1500,
     0.5
   );
 
@@ -415,7 +475,7 @@ Return ONLY a valid JSON object:
     ? lines.slice(0, 3)
     : [
         'Structure your answer using Context -> Action -> Outcome (STAR) or Problem -> Trade-off -> Solution.',
-        `Connect your reasoning to real coursework, labs, or FYP experience relevant to ${config.company}.`,
+        `Connect your reasoning to real engineering coursework, labs, or project experience relevant to ${config.company}.`,
         'Include at least one measurable result, technical constraint, or safety/quality metric.',
       ];
 }
@@ -424,6 +484,8 @@ interface RawEvaluationResponse {
   overallScore?: number;
   readinessLabel?: string;
   executiveSummary?: string;
+  clarityStructureScore?: number;
+  technicalAlignmentScore?: number;
   communicationScore?: number;
   technicalDepthScore?: number;
   confidenceScore?: number;
@@ -450,24 +512,32 @@ export async function generateFinalEvaluation(
   config: InterviewConfig,
   qaPairs: QAPair[]
 ): Promise<InterviewReport> {
-  const totalFillerWords: FillerWordCounts = sumFillerWords(qaPairs.map((q) => q.fillerWords));
+  const answerDepth = computeAnswerDepthMetrics(qaPairs.map((q) => q.answer));
   const isComfortMode = config.languageMode === 'Hinglish / Roman Urdu Comfort Mode';
   const contextBlock = buildContextBlock(config);
 
   const transcript = qaPairs
     .map(
       (qa, idx) =>
-        `Q${idx + 1}: ${qa.question}\nCandidate Answer: ${qa.answer}\nFiller words detected: ${qa.fillerWords.total} (um:${qa.fillerWords.um}, uh:${qa.fillerWords.uh}, like:${qa.fillerWords.like}, basically:${qa.fillerWords.basically})`
+        `Q${idx + 1}: ${qa.question}\nCandidate Answer (${qa.wordCount} words): ${qa.answer}`
     )
     .join('\n\n---\n\n');
 
-  const systemPrompt = `You are an expert AI Technical Recruiter and Senior Engineering Interviewer tailored for top employers in Pakistan evaluating an NED University candidate.
+  const systemPrompt = `You are a Principal Engineering Interviewer & Global Technical Recruiter evaluating an engineering/tech candidate's completed mock interview.
 ${contextBlock}
+
+DETERMINISTIC RESPONSE LENGTH METRICS:
+- Average words per answer: ${answerDepth.averageWordsPerAnswer}
+- Total words submitted: ${answerDepth.totalWords}
+- Conciseness Band: ${answerDepth.concisenessRating}
 
 EVALUATION RULES:
 1. ACTIONABLE EDUCATIONAL FEEDBACK: Do not give generic praise or generic scores. For every question, explicitly state what specific technical keywords/concepts the candidate missed and evaluate whether behavioral/project answers followed the STAR method (Situation, Task, Action, Result).
-2. RUBRIC & REVISION CHEAT SHEET: Populate "evaluation_rubric" (0-100 integers for technical_accuracy, communication_clarity, industry_alignment, confidence_tone) and "final_cheat_sheet" with 4-6 specific concepts, missed keywords, or architecture patterns the student must revise tonight.
-3. ${
+2. COMMUNICATION & RESPONSE QUALITY METRICS:
+   - Score "clarityStructureScore" (0-100 integer): evaluates logical flow, conciseness, and STAR method structuring.
+   - Score "technicalAlignmentScore" (0-100 integer): evaluates technical depth and role relevance to ${config.track} @ ${config.company}.
+3. RUBRIC & REVISION CHEAT SHEET: Populate "evaluation_rubric" (0-100 integers for technical_accuracy, communication_clarity, industry_alignment, confidence_tone) and "final_cheat_sheet" with 4-6 specific concepts, missed keywords, or architecture patterns the student must revise tonight.
+4. ${
     isComfortMode
       ? 'COMFORT MODE TRANSLATION: The candidate may have responded in Hinglish / Roman Urdu mixed with English. Judge their engineering/business ideas fairly without penalizing Roman Urdu phrasing, provide an "englishTranslation" translating their idea into polished corporate English for each question, and provide a "polishedSampleAnswer" in crisp corporate English.'
       : 'Evaluate clarity, technical accuracy, structure, and depth in Corporate English.'
@@ -478,8 +548,8 @@ Return ONLY a valid JSON object (no markdown fences, no commentary outside brace
   "overallScore": 0-100 integer,
   "readinessLabel": "2-4 word verdict e.g. Interview Ready / Strong Potential / Needs Focused Prep",
   "executiveSummary": "3-4 sentence constructive summary tailored to target company",
-  "communicationScore": 0-100 integer,
-  "technicalDepthScore": 0-100 integer,
+  "clarityStructureScore": 0-100 integer,
+  "technicalAlignmentScore": 0-100 integer,
   "confidenceScore": 0-100 integer,
   "evaluation_rubric": {
     "technical_accuracy": 0-100 integer,
@@ -490,7 +560,7 @@ Return ONLY a valid JSON object (no markdown fences, no commentary outside brace
   "final_cheat_sheet": [
     "Specific concept, missed keyword, or architecture pattern to revise tonight"
   ],
-  "skillBadges": ["3 to 4 concise skill badges like Strong Problem Solving, Needs Technical Depth, Great Confidence"],
+  "skillBadges": ["3 to 4 concise skill badges like Strong Problem Solving, Structured STAR Framing, Solid Technical Depth"],
   "strengths": ["3 specific strengths observed from their actual answers"],
   "improvements": ["3 concrete, actionable improvements"],
   "questionBreakdowns": [
@@ -518,24 +588,46 @@ Return ONLY a valid JSON object (no markdown fences, no commentary outside brace
 
   const parsed = extractJsonObject<RawEvaluationResponse>(raw);
   const overallScore = clampScore(parsed.overallScore, 74);
-  const communicationScore = clampScore(
-    parsed.communicationScore ?? parsed.evaluation_rubric?.communication_clarity,
+
+  const clarityStructureScore = clampScore(
+    parsed.clarityStructureScore ??
+      parsed.communicationScore ??
+      parsed.evaluation_rubric?.communication_clarity,
     overallScore
   );
-  const technicalDepthScore = clampScore(
-    parsed.technicalDepthScore ?? parsed.evaluation_rubric?.technical_accuracy,
+
+  const technicalAlignmentScore = clampScore(
+    parsed.technicalAlignmentScore ??
+      parsed.technicalDepthScore ??
+      parsed.evaluation_rubric?.technical_accuracy,
     overallScore
   );
+
   const confidenceScore = clampScore(
     parsed.confidenceScore ?? parsed.evaluation_rubric?.confidence_tone,
     overallScore
   );
 
   const evaluationRubric: EvaluationRubric = {
-    technical_accuracy: clampScore(parsed.evaluation_rubric?.technical_accuracy, technicalDepthScore),
-    communication_clarity: clampScore(parsed.evaluation_rubric?.communication_clarity, communicationScore),
-    industry_alignment: clampScore(parsed.evaluation_rubric?.industry_alignment, overallScore),
+    technical_accuracy: clampScore(
+      parsed.evaluation_rubric?.technical_accuracy,
+      technicalAlignmentScore
+    ),
+    communication_clarity: clampScore(
+      parsed.evaluation_rubric?.communication_clarity,
+      clarityStructureScore
+    ),
+    industry_alignment: clampScore(
+      parsed.evaluation_rubric?.industry_alignment,
+      technicalAlignmentScore
+    ),
     confidence_tone: clampScore(parsed.evaluation_rubric?.confidence_tone, confidenceScore),
+  };
+
+  const communicationMetrics: CommunicationQualityMetrics = {
+    clarityStructureScore,
+    technicalAlignmentScore,
+    answerDepth,
   };
 
   const finalCheatSheet =
@@ -577,9 +669,10 @@ Return ONLY a valid JSON object (no markdown fences, no commentary outside brace
     executiveSummary:
       parsed.executiveSummary?.trim() ||
       `Completed ${qaPairs.length} ${config.mode.toLowerCase()} questions targeting ${config.company} (${config.track}). Review the missed technical keywords, STAR feedback, and revision cheat sheet below.`,
-    communicationScore,
-    technicalDepthScore,
+    communicationScore: clarityStructureScore,
+    technicalDepthScore: technicalAlignmentScore,
     confidenceScore,
+    communicationMetrics,
     evaluationRubric,
     finalCheatSheet,
     skillBadges:
@@ -593,9 +686,8 @@ Return ONLY a valid JSON object (no markdown fences, no commentary outside brace
     improvements:
       Array.isArray(parsed.improvements) && parsed.improvements.length > 0
         ? parsed.improvements.slice(0, 4).map((s) => String(s).trim())
-        : ['Quantify project outcomes and trim filler words during spoken responses.'],
+        : ['Quantify project outcomes and tighten STAR Result statements in spoken responses.'],
     questionBreakdowns,
-    totalFillerWords,
     isDemo: false,
     completedAt: new Date().toISOString(),
   };

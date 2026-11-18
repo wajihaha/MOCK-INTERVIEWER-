@@ -18,6 +18,7 @@ import {
 import { PERSONA_OPTIONS } from '../data/presets';
 import {
   GroqApiError,
+  createSessionVarietyContext,
   generateFinalEvaluation,
   generateNextInterviewTurn,
   generateQuestionHint,
@@ -29,7 +30,7 @@ import type {
   InterviewReport,
   QAPair,
 } from '../types/interview';
-import { detectFillerWords } from '../utils/fillerWords';
+import { countWords } from '../utils/responseMetrics';
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -84,6 +85,7 @@ export function InterviewScreen({
   const [currentQuestionNumber, setCurrentQuestionNumber] = useState(1);
   const [currentQuestionText, setCurrentQuestionText] = useState('');
 
+  // Committed answer text vs temporary non-mutating interim speech preview
   const [answerDraft, setAnswerDraft] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
 
@@ -116,8 +118,8 @@ export function InterviewScreen({
   const questionStartTimeRef = useRef<number>(Date.now());
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const baseDraftBeforeSpeechRef = useRef('');
-  const committedSpeechRef = useRef('');
+  const lastFinalIndexRef = useRef<number>(-1);
+  const sessionVarietyRef = useRef(createSessionVarietyContext());
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedRef = useRef(false);
 
@@ -133,17 +135,7 @@ export function InterviewScreen({
 
   const ttsSupported = useMemo(() => 'speechSynthesis' in window, []);
 
-  // Combined live text for filler word inspection
-  const combinedAnswerText = useMemo(() => {
-    return interimTranscript
-      ? `${answerDraft}${answerDraft && !answerDraft.endsWith(' ') ? ' ' : ''}${interimTranscript}`
-      : answerDraft;
-  }, [answerDraft, interimTranscript]);
-
-  const liveFillerCounts = useMemo(
-    () => detectFillerWords(combinedAnswerText),
-    [combinedAnswerText]
-  );
+  const liveWordCount = useMemo(() => countWords(answerDraft), [answerDraft]);
 
   const speakText = useCallback(
     (text: string, messageId: string) => {
@@ -185,6 +177,7 @@ export function InterviewScreen({
       }
       recognitionRef.current = null;
     }
+    lastFinalIndexRef.current = -1;
     setIsRecording(false);
     setInterimTranscript('');
   }, []);
@@ -217,7 +210,12 @@ export function InterviewScreen({
       setShowHintPanel(false);
 
       try {
-        const turn = await generateNextInterviewTurn(config, historyToUse, nextNum);
+        const turn = await generateNextInterviewTurn(
+          config,
+          historyToUse,
+          nextNum,
+          sessionVarietyRef.current
+        );
         const msgId = `ai-q-${nextNum}-${Date.now()}`;
 
         const aiMessage: ChatMessage = {
@@ -287,7 +285,7 @@ export function InterviewScreen({
 
     if (!SpeechRecognitionCtor) {
       setVoiceError(
-        'Voice-to-text requires a Chromium-based browser (Chrome, Edge) with Web Speech API support.'
+        'Voice-to-text is not supported on this browser. Use Chrome or Edge, or type your response below.'
       );
       return;
     }
@@ -299,31 +297,37 @@ export function InterviewScreen({
       recognition.lang =
         config.languageMode === 'Hinglish / Roman Urdu Comfort Mode' ? 'en-PK' : 'en-US';
 
-      baseDraftBeforeSpeechRef.current = answerDraft.trim();
-      committedSpeechRef.current = '';
+      lastFinalIndexRef.current = -1;
+      setInterimTranscript('');
 
+      // Strict index-based final vs interim separation to prevent mobile Android/iOS duplication
       recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        let newFinalChunk = '';
-        let currentInterim = '';
+        let newlyFinalized = '';
+        let liveInterim = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0]?.transcript || '';
-          if (event.results[i].isFinal) {
-            newFinalChunk += transcript;
+          const result = event.results[i];
+          const text = result[0]?.transcript?.trim() || '';
+          if (!text) continue;
+
+          if (result.isFinal === true) {
+            if (i > lastFinalIndexRef.current) {
+              lastFinalIndexRef.current = i;
+              newlyFinalized += (newlyFinalized ? ' ' : '') + text;
+            }
           } else {
-            currentInterim += transcript;
+            liveInterim += (liveInterim ? ' ' : '') + text;
           }
         }
 
-        if (newFinalChunk) {
-          committedSpeechRef.current = `${committedSpeechRef.current} ${newFinalChunk}`.trim();
-          const joined = [baseDraftBeforeSpeechRef.current, committedSpeechRef.current]
-            .filter(Boolean)
-            .join(' ');
-          setAnswerDraft(joined);
+        if (newlyFinalized) {
+          setAnswerDraft((prev) => {
+            const base = prev.trimEnd();
+            return base ? `${base} ${newlyFinalized}` : newlyFinalized;
+          });
         }
 
-        setInterimTranscript(currentInterim.trim());
+        setInterimTranscript(liveInterim);
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
@@ -332,11 +336,13 @@ export function InterviewScreen({
         } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           setVoiceError(`Voice recognition error (${event.error}). You can continue typing.`);
         }
+        lastFinalIndexRef.current = -1;
         setIsRecording(false);
         setInterimTranscript('');
       };
 
       recognition.onend = () => {
+        lastFinalIndexRef.current = -1;
         setIsRecording(false);
         setInterimTranscript('');
       };
@@ -378,7 +384,10 @@ export function InterviewScreen({
     async (allowEmptyOnTimeout = false) => {
       if (isLoadingTurn || isEvaluating) return;
 
-      const finalText = combinedAnswerText.trim();
+      const committed = answerDraft.trim();
+      const pendingInterim = interimTranscript.trim();
+      const finalText = committed || pendingInterim;
+
       if (!finalText && !allowEmptyOnTimeout) return;
 
       stopVoiceRecording();
@@ -386,7 +395,6 @@ export function InterviewScreen({
 
       const answerContent =
         finalText || '[No response submitted before the 60-second timer expired]';
-      const fillerSnapshot = detectFillerWords(answerContent);
       const elapsedSeconds = Math.max(
         1,
         Math.round((Date.now() - questionStartTimeRef.current) / 1000)
@@ -403,7 +411,7 @@ export function InterviewScreen({
         questionIndex: currentQuestionNumber,
         question: currentQuestionText,
         answer: answerContent,
-        fillerWords: fillerSnapshot,
+        wordCount: countWords(answerContent),
         usedHint: Boolean(usedHintByQuestion[currentQuestionNumber]),
         timeSpentSeconds: elapsedSeconds,
       };
@@ -422,11 +430,12 @@ export function InterviewScreen({
       }
     },
     [
-      combinedAnswerText,
+      answerDraft,
       config.questionCount,
       currentQuestionNumber,
       currentQuestionText,
       fetchTurn,
+      interimTranscript,
       isEvaluating,
       isLoadingTurn,
       qaPairs,
@@ -444,7 +453,7 @@ export function InterviewScreen({
     }
 
     if (secondsLeft <= 0) {
-      if (combinedAnswerText.trim().length > 0) {
+      if (answerDraft.trim().length > 0 || interimTranscript.trim().length > 0) {
         handleSubmitAnswer(true);
       }
       return;
@@ -456,10 +465,11 @@ export function InterviewScreen({
 
     return () => window.clearInterval(timer);
   }, [
-    combinedAnswerText,
+    answerDraft,
     config.timerEnabled,
     errorState,
     handleSubmitAnswer,
+    interimTranscript,
     isEvaluating,
     isLoadingTurn,
     secondsLeft,
@@ -508,10 +518,11 @@ export function InterviewScreen({
   };
 
   const progressPercent = Math.round(
-    ((Math.min(currentQuestionNumber, config.questionCount)) / config.questionCount) * 100
+    (Math.min(currentQuestionNumber, config.questionCount) / config.questionCount) * 100
   );
 
   const currentHints = hintsByQuestion[currentQuestionNumber] || [];
+  const hasSubmittableText = Boolean(answerDraft.trim() || interimTranscript.trim());
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col px-3 py-4 sm:px-6 sm:py-6">
@@ -578,9 +589,7 @@ export function InterviewScreen({
                 }`}
               >
                 <Clock className="h-3.5 w-3.5" />
-                <span>
-                  00:{String(secondsLeft).padStart(2, '0')}
-                </span>
+                <span>00:{String(secondsLeft).padStart(2, '0')}</span>
               </div>
             )}
           </div>
@@ -674,9 +683,7 @@ export function InterviewScreen({
                 <span>
                   {isEvaluating
                     ? 'Evaluating your interview answers and compiling scorecard...'
-                    : `${personaMeta.name} is preparing Question ${
-                        qaPairs.length + 1
-                      }...`}
+                    : `${personaMeta.name} is preparing Question ${qaPairs.length + 1}...`}
                 </span>
               </div>
             </div>
@@ -786,57 +793,46 @@ export function InterviewScreen({
           </div>
         )}
 
-        {/* Answer Composer + Voice Mic + Real-time Filler Word Detector */}
+        {/* Answer Composer + Cross-Device Voice Mic */}
         <div className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-950/60">
-          {/* Live Filler-Word HUD */}
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2 text-slate-600 dark:text-slate-400">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
               <span className="font-semibold text-slate-800 dark:text-slate-200">
-                Filler-Word Detector:
+                Response Depth:
               </span>
               <span className="font-mono tabular-nums">
-                Total: <strong className="text-slate-900 dark:text-white">{liveFillerCounts.total}</strong>
+                <strong className="text-slate-900 dark:text-white">{liveWordCount}</strong> words
               </span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono tabular-nums">um: {liveFillerCounts.um}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono tabular-nums">uh: {liveFillerCounts.uh}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono tabular-nums">like: {liveFillerCounts.like}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono tabular-nums">basically: {liveFillerCounts.basically}</span>
+              <span className="hidden text-slate-400 sm:inline">
+                (Aim for 45–120 structured words)
+              </span>
             </div>
 
             {isRecording && (
-              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                Listening via Microphone...
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                Recording active — speaking...
               </span>
             )}
           </div>
 
           {voiceError && (
-            <p className="mb-2.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <p className="mb-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
               {voiceError}
             </p>
           )}
 
-          {config.timerEnabled && secondsLeft === 0 && !combinedAnswerText.trim() && (
+          {config.timerEnabled && secondsLeft === 0 && !hasSubmittableText && (
             <p className="mb-2.5 text-xs font-medium text-red-700 dark:text-red-300">
-              60-second timer reached 00:00. Finish typing/speaking your response or click Submit to continue.
+              60-second timer reached 00:00. Finish typing/speaking your response or click Submit to
+              continue.
             </p>
           )}
 
           <textarea
             rows={4}
-            value={combinedAnswerText}
-            onChange={(e) => {
-              setInterimTranscript('');
-              setAnswerDraft(e.target.value);
-              if (isRecording) {
-                baseDraftBeforeSpeechRef.current = e.target.value;
-                committedSpeechRef.current = '';
-              }
-            }}
+            value={answerDraft}
+            onChange={(e) => setAnswerDraft(e.target.value)}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault();
@@ -849,8 +845,23 @@ export function InterviewScreen({
                 ? 'Type or speak naturally in English or Roman Urdu/Hinglish (Ctrl+Enter to submit)...'
                 : 'Type or speak your answer using the microphone button (Ctrl+Enter to submit)...'
             }
-            className="w-full rounded-lg border border-slate-300 bg-white p-3.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500"
+            className="w-full rounded-lg border border-slate-300 bg-white p-3.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:bg-slate-950"
           />
+
+          {/* Non-mutating live interim speech preview */}
+          {isRecording && (
+            <div
+              aria-live="polite"
+              className="mt-2 rounded-lg border border-indigo-200/80 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200"
+            >
+              <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                Live Speech Preview:{' '}
+              </span>
+              <span className="italic">
+                {interimTranscript || 'Listening — finalized phrases will appear in your answer box...'}
+              </span>
+            </div>
+          )}
 
           <div className="mt-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
@@ -888,13 +899,11 @@ export function InterviewScreen({
 
             <button
               type="button"
-              onClick={() =>
-                handleSubmitAnswer(config.timerEnabled && secondsLeft === 0)
-              }
+              onClick={() => handleSubmitAnswer(config.timerEnabled && secondsLeft === 0)}
               disabled={
                 isLoadingTurn ||
                 isEvaluating ||
-                (!combinedAnswerText.trim() && !(config.timerEnabled && secondsLeft === 0))
+                (!hasSubmittableText && !(config.timerEnabled && secondsLeft === 0))
               }
               className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-[40px] sm:w-auto whitespace-nowrap cursor-pointer dark:bg-indigo-600 dark:hover:bg-indigo-500"
             >

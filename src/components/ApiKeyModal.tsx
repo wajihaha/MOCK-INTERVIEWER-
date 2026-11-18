@@ -134,7 +134,7 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChanged }: ApiKeyModalProps)
                 placeholder="gsk_..."
                 autoComplete="off"
                 spellCheck={false}
-                className="font-mono w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-3.5 pr-11 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-600"
+                className="font-mono w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-3.5 pr-11 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-600 dark:focus:bg-slate-950"
               />
               <button
                 type="button"
